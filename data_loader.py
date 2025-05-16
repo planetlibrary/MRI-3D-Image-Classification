@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader, Dataset
 from pathlib import Path
 import glob
 import os
+from utils import print_dist
 
 # Optional: Add transformations later like torchio, torchvision, etc.
 
@@ -50,6 +51,13 @@ def get_dataloaders(train_path, val_path, test_path, batch_size=8, num_workers=4
     test_dataset = FolderDataset(test_path, transform=transforms)
 
     # print(train_dataset[0])
+    train_dist = train_dataset.label_distribution()
+    val_dist = val_dataset.label_distribution()
+    test_dist = test_dataset.label_distribution()
+
+    print('Class Distribution as follows:')
+    print_dist(train_dist, test_dist, val_dist)
+
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)

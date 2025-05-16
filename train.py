@@ -181,7 +181,7 @@ if __name__ == '__main__':
 
         # save checkpoint
         os.makedirs(cfg.checkpoints_dir, exist_ok=True)
-        save_path = os.path.join(cfg.checkpoints_dir, f'model_checkpt_{epoch}.pth')
+        save_path = os.path.join(cfg.checkpoints_dir, f'model_checkpt.pth')
         save_status = save_at_n_epoch(model, epoch, save_path, cfg)
 
         log_txt = f"""Train Loss: {train_loss:.4f} | Accuracy: {train_metrics['accuracy']:.4f} | Precision: {train_metrics['precision']:.4f} | Recall: {train_metrics['recall']:.4f} | F1-score: {train_metrics['f1_score']:.4f}\nTest Loss: {test_loss:.4f} | Accuracy: {test_metrics['accuracy']:.4f} | Precision: {test_metrics['precision']:.4f} | Recall: {test_metrics['recall']:.4f} | F1-score: {test_metrics['f1_score']:.4f}| Learning Rate: {current_lr:.6f}"""

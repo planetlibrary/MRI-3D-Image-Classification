@@ -12,9 +12,10 @@ from tqdm import tqdm
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from config import Config
 from data_loader import get_dataloaders
-from model import get_model
+from models import get_model
+from utils import *
 
-def train_one_epoch(model, loader, criterion, optimizer, device):
+def train_one_epoch(model, loader, criterion, optimizer, scheduler, device):
     model.train()
     running_loss = 0
     correct, total = 0, 0
@@ -39,10 +40,12 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
         all_preds.extend(preds.cpu().tolist())
         all_labels.extend(labels.cpu().tolist())
 
+    scheduler.step()
+
     metrics = compute_metrics(all_labels, all_preds)
     avg_loss = running_loss / total
     # accuracy = correct / total
-    return avg_loss, metrics
+    return avg_loss, metrics, all_labels, all_preds
 
 
 def evaluate(model, loader, criterion, device, phase="Validation"):
@@ -69,157 +72,147 @@ def evaluate(model, loader, criterion, device, phase="Validation"):
 
     avg_loss = running_loss / total
     # accuracy = correct / total
-    return avg_loss, metrics
-
-def compute_metrics(y_true, y_pred):
-    return {
-    "accuracy": accuracy_score(y_true, y_pred),
-    "precision": precision_score(y_true, y_pred, average='macro', zero_division=0),
-    "recall": recall_score(y_true, y_pred, average='macro', zero_division=0),
-    "f1_score": f1_score(y_true, y_pred, average='macro', zero_division=0),
-    }
-
-def save_checkpoint(model, path):
-    torch.save(model.state_dict(), path)
-
-def save_at_n_epoch(model, epoch, path, config):
-     if (config.save_every_n_epochs > 0 and (epoch) % config.save_every_n_epochs == 0) or epoch == config.num_epochs:
-        save_checkpoint(model, path)
+    return avg_loss, metrics, all_labels, all_preds
 
 
 
-def folder_structure():
-    # return "├── Train/\n"\
-    # "│ ├── AD/\n"\
-    # "│ ├── CN/\n"\
-    # "│ └── MCI/\n"\
-    # "├── Val/\n"\
-    # "│ ├── AD/\n"\
-    # "│ ├── CN/\n"\
-    # "│ └── MCI/\n"\
-    # "└── Test/\n"\
-    # "│ ├── AD/\n"\
-    # "│ ├── CN/\n"\
-    # "│ └── MCI/\n"
 
-    return textwrap.dedent("""
-    Expected directory structure:\n
-    ├── Train/\n
-    │ ├── AD/\n
-    │ ├── CN/\n
-    │ └── MCI/\n
-    ├── Val/\n
-    │ ├── AD/\n
-    │ ├── CN/\n
-    │ └── MCI/\n
-    └── Test/\n
-     ├── AD/\n
-     ├── CN/\n
-     └── MCI/
-    """)
 
     
 
 if __name__ == '__main__':
     # fs = folder_structure()
-    parser = argparse.ArgumentParser(description="Train a 3D image classification model.\n")
-    parser.add_argument('--data_dir', type=str, required=True, help=f'Path to root dataset.')
+    cfg = Config()
+    parser = argparse.ArgumentParser(description="Train a 3D image classification model.")
+    parser.add_argument('--data_dir', type=str, required=True, help='Path to root dataset.')
     parser.add_argument('--output_dir', type=str, required=True, help='Path to save logs and checkpoints')
-    parser.add_argument('--epochs', type=int, default=Config.num_epochs)
-    parser.add_argument('--batch_size', type=int, default=Config.batch_size)
+    parser.add_argument('--model_name', type=str, default='ViTForClassification')
+    parser.add_argument('--epochs', type=int, default=cfg.num_epochs)
+    parser.add_argument('--batch_size', type=int, default=cfg.batch_size)
     args = parser.parse_args()
 
-    os.makedirs(os.path.join(args.output_dir, 'tensorboard'), exist_ok=True)
-    writer = SummaryWriter(log_dir=os.path.join(args.output_dir, 'tensorboard'))
+    project_intro(cfg.project_name)
 
-    device = torch.device(Config.device)
+
+    os.makedirs(os.path.join(args.output_dir,f'{cfg.model_name}', 'tensorboard'), exist_ok=True)
+    writer = SummaryWriter(log_dir=os.path.join(args.output_dir,f'{cfg.model_name}', 'tensorboard'))
+
+    device = torch.device(cfg.device)
 
     # Update config dynamically if needed
-    Config.batch_size = args.batch_size
-    Config.num_epochs = args.epochs
-    Config.train_dir = os.path.join(args.data_dir, 'Train')
-    # Config.val_dir = os.path.join(args.data_dir, 'Val')
-    Config.test_dir = os.path.join(args.data_dir, 'Test')
+    cfg.batch_size = args.batch_size
+    cfg.model_name = args.model_name
+    cfg.num_epochs = args.epochs
+    cfg.train_dir = os.path.join(args.data_dir, 'Train')
+    cfg.test_dir = os.path.join(args.data_dir, 'Test')
 
-    print(Config.num_epochs)
+    # print(cfg.num_epochs)
 
     train_loader, val_loader, test_loader = get_dataloaders(
-        Config.train_dir, Config.val_dir, Config.test_dir,
+        cfg.train_dir, cfg.val_dir, cfg.test_dir,
         batch_size=args.batch_size,
-        num_workers=Config.num_workers
+        num_workers=cfg.num_workers
     )
 
-    model = get_model(Config.model_name, Config).to(device)
+    # print(device)
+
+    model = get_model(cfg.model_name, cfg).to(device)
+    print(f"Loaded {cfg.model_name} successfully on {next(model.parameters()).device}")
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=Config.learning_rate)
+    optimizer = optim.AdamW(model.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay)
+    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 20, 30, 40, 50], gamma=0.7)
 
     best_test_loss = np.inf
+    best_test_acc = 0
+    
     history = {
     'train_loss': [],
-    # 'val_loss': [],
     'test_loss': [],
     'train_accuracy': [],
     'train_precision': [],
     'train_recall': [],
     'train_f1_score': [],
-    # 'val_accuracy': [],
-    # 'val_precision': [],
-    # 'val_recall': [],
-    # 'val_f1_score': [],
     'test_accuracy': [],
     'test_precision': [],
     'test_recall': [],
     'test_f1_score': [],
     }
+    
+    os.makedirs(cfg.logs_dir, exist_ok=True)
+    with open(os.path.join(cfg.logs_dir, 'log.txt'), 'w') as f:
+        f.write(f"The training started at: {get_date()}\n")
+
+    f = open(os.path.join(cfg.logs_dir, 'terminal.log'), 'w')
+    f.close()
 
     for epoch in range(1, args.epochs + 1):
+
+        start = time.time()
+        
         print(f'\nEpoch {epoch}/{args.epochs}')
-        train_loss, train_metrics = train_one_epoch(model, train_loader, criterion, optimizer, device)
-        # val_loss, val_metrics = evaluate(model, val_loader, criterion, device, phase="Validation")
-        test_loss, test_metrics = evaluate(model, test_loader, criterion, device, phase="Test")
+        train_loss, train_metrics, train_labels, train_preds = train_one_epoch(model, train_loader, criterion, optimizer, scheduler, device)
+        test_loss, test_metrics, test_labels, test_preds = evaluate(model, test_loader, criterion, device, phase="Test")
+        
+        # Optionally log the learning rate
+        current_lr = optimizer.param_groups[0]['lr']
 
-        print(f"\nTrain Loss: {train_loss:.4f} | Acc: {train_metrics['accuracy']:.4f}")
-        # print(f'Val   Loss: {val_loss:.4f} | Acc: {val_acc:.4f}')
-        print(f"Test  Loss: {test_loss:.4f} | Acc: {test_metrics['accuracy']:.4f}")
+        plot_cm(train_labels, train_preds, cfg, epoch,  phase='Train')
+        plot_cm(test_labels, test_preds, cfg, epoch, phase='Test')
 
+        
 
         # TensorBoard logging
         for metric_name in train_metrics:
             writer.add_scalar(f'{metric_name}/train', train_metrics[metric_name], epoch)
-            # writer.add_scalar(f'{metric_name}/val', val_metrics[metric_name], epoch)
             writer.add_scalar(f'{metric_name}/test', test_metrics[metric_name], epoch)
         
         writer.add_scalar('Loss/train', train_loss, epoch)
-        # # writer.add_scalar('Loss/val', val_loss, epoch)
         writer.add_scalar('Loss/test', test_loss, epoch)
-        # writer.add_scalar('Accuracy/train', train_acc, epoch)
-        # # writer.add_scalar('Accuracy/val', val_acc, epoch)
-        # writer.add_scalar('Accuracy/test', test_acc, epoch)
+        writer.add_scalar("LR", current_lr, epoch)
+
 
         history['train_loss'].append(train_loss)
-        # history['val_loss'].append(val_loss)
         history['test_loss'].append(test_loss)
         
         # Save metrics       
         for metric_name in train_metrics:
             history[f'train_{metric_name}'].append(train_metrics[metric_name])
-            # history[f'val_{metric_name}'].append(val_metrics[metric_name])
             history[f'test_{metric_name}'].append(test_metrics[metric_name])
 
         # save checkpoint
-        save_path = os.path.join(args.output_dir, 'model_checkpt.pth')
-        save_at_n_epoch(model, epoch, save_path, Config)
+        os.makedirs(cfg.checkpoints_dir, exist_ok=True)
+        save_path = os.path.join(cfg.checkpoints_dir, f'model_checkpt_{epoch}.pth')
+        save_status = save_at_n_epoch(model, epoch, save_path, cfg)
+
+        log_txt = f"""Train Loss: {train_loss:.4f} | Accuracy: {train_metrics['accuracy']:.4f} | Precision: {train_metrics['precision']:.4f} | Recall: {train_metrics['recall']:.4f} | F1-score: {train_metrics['f1_score']:.4f}\nTest Loss: {test_loss:.4f} | Accuracy: {test_metrics['accuracy']:.4f} | Precision: {test_metrics['precision']:.4f} | Recall: {test_metrics['recall']:.4f} | F1-score: {test_metrics['f1_score']:.4f}| Learning Rate: {current_lr:.6f}"""
+
+        with open(os.path.join(cfg.logs_dir, 'log.txt'), 'a') as f:
+            f.write(f"\n[{get_date()}]: "+log_txt+'\n')
+
+
+
+        end = time.time()
+        print(log_txt+f"| Time Taken: {get_time_diff(start, end)}"+f"{save_status}\n")
+
+        with open(os.path.join(cfg.logs_dir, 'terminal.log'), 'a') as f:
+            f.write(f"\n[{get_date()}]: "+log_txt+f"| Time Taken: {get_time_diff(start, end)}"+f"{save_status}\n")
+
 
         # Save best checkpoint
-        if test_loss < best_test_loss and test_metrics['accuracy'] > best_val_acc:
+        if test_loss < best_test_loss and test_metrics['accuracy'] > best_test_acc:
             best_test_loss = test_loss
-            best_val_acc = test_metrics['accuracy']
-            save_path = os.path.join(args.output_dir, 'best_model.pth')
+            best_test_acc = test_metrics['accuracy']
+            save_path = os.path.join(cfg.checkpoints_dir, 'best_model.pth')
             save_checkpoint(model, save_path)
 
-    # Save final metrics
-    with open(os.path.join(args.output_dir, 'metrics.json'), 'w') as f:
-        json.dump(history, f, indent=4)
 
-    print(f"\nTraining completed. Best Test Loss: {best_test_loss:.4f} | Best Test Accuracy: {best_val_acc:.4f} | ")
+    # Save final metrics
+    os.makedirs(cfg.metrics_dir, exist_ok=True)
+    with open(os.path.join(cfg.metrics_dir, 'metrics.json'), 'w') as f:
+        json.dump(history, f, indent=4)
+    
+    plot_metrics(cfg)
+    plot_save_config(cfg)
+
+    print(f"\nTraining completed. Best Test Loss: {best_test_loss:.4f} | Best Test Accuracy: {best_test_acc:.4f}")
     writer.close()

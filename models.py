@@ -278,7 +278,7 @@ class PatchEmbeddings(nn.Module):
         x = self.conv_3(x)
         x = self.conv_4(x)
         x = self.conv_5(x)
-        x = self.downsample(x)
+        # x = self.downsample(x)
         #x = self.projection(x)
         x = rearrange(x, 'b c d w h -> b c (d w h)')
         
@@ -298,11 +298,44 @@ class Embeddings(nn.Module):
         # Similar to BERT, the [CLS] token is added to the beginning of the input sequence
         # and is used to classify the entire sequence
         self.cls_token = nn.Parameter(torch.randn(1, 1, self.cfg.hidden_size))
+        self.cls_pos_embed = nn.Parameter(torch.zeros(1, self.cfg.hidden_size))  # or make this learnable
         # Create position embeddings for the [CLS] token and the patch embeddings
         # Add 1 to the sequence length for the [CLS] token
-        self.position_embeddings = \
-            nn.Parameter(torch.randn(1, self.patch_embeddings.num_patches + 1, self.cfg.hidden_size))
+        # self.position_embeddings = nn.Parameter(torch.randn(1, self.patch_embeddings.num_patches + 1, self.cfg.hidden_size))
+        position_embeddings = self.get_3d_sinusoidal_embedding(self.cfg.hidden_size)  # (512, 216)
+        self.register_buffer("position_embeddings", position_embeddings)
         self.dropout = nn.Dropout(cfg.hidden_dropout_prob)
+
+    def get_3d_sinusoidal_embedding(self, dim):
+        """
+        grid_positions: (N, 3) where each row is (x, y, z)
+        dim: total dimension of embedding (should be divisible by 3 and even)
+        """
+
+        grid_size = 8
+        grid_positions = torch.stack(torch.meshgrid(
+            torch.arange(grid_size),
+            torch.arange(grid_size),
+            torch.arange(grid_size),
+            indexing='ij'
+
+        ), dim=-1).reshape(-1, 3)  # shape: (512, 3)
+        dim_each = dim // 3  # for x, y, z
+        assert dim % 6 == 0, "Embedding dimension must be divisible by 6 for 3D sinusoidal encoding."
+
+        def pe(pos, d):
+            pe = torch.zeros((pos.shape[0], d))
+            div_term = torch.exp(torch.arange(0, d, 2) * -(torch.log(torch.tensor(10000.0)) / d))
+            print('pe, pos shape: ', pe.shape, pos.shape)
+            pe[:, 0::2] = torch.sin(pos.unsqueeze(1) * div_term)
+            pe[:, 1::2] = torch.cos(pos.unsqueeze(1) * div_term)
+            return pe
+
+        pe_x = pe(grid_positions[:, 0], dim_each)
+        pe_y = pe(grid_positions[:, 1], dim_each)
+        pe_z = pe(grid_positions[:, 2], dim_each)
+
+        return torch.cat([pe_x, pe_y, pe_z], dim=1)  # shape: (512, dim)
 
     def forward(self, x):
         x = self.patch_embeddings(x)
@@ -313,7 +346,12 @@ class Embeddings(nn.Module):
         # Concatenate the [CLS] token to the beginning of the input sequence
         # This results in a sequence length of (num_patches + 1)
         x = torch.cat((cls_tokens, x), dim=1)
-        x = x + self.position_embeddings
+        # Generate (512, 216) 3D sinusoidal PE
+        pos_embed = torch.cat([self.cls_pos_embed, self.position_embeddings], dim=0)  # (513, 216)
+        pos_embed = pos_embed.unsqueeze(0).expand(batch_size, -1, -1)  # (3, 513, 216)
+
+        x = x + pos_embed
+        # x = x + self.position_embeddings
         x = self.dropout(x)
         return x
 
@@ -497,8 +535,7 @@ class Block(nn.Module):
 
     def forward(self, x, output_attentions=False):
         # Self-attention
-        attention_output, attention_probs = \
-            self.attention(self.layernorm_1(x), output_attentions=output_attentions)
+        attention_output, attention_probs = self.attention(self.layernorm_1(x), output_attentions=output_attentions)
         # Skip connection
         x = x + attention_output
         # Feed-forward network

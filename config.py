@@ -60,12 +60,12 @@ class Config:
             self.batch_size = 5 #3
             self.image_size = 192
             self.patch_size = 6
-            self.hidden_size= 27 #216
+            self.hidden_size= 216
             self.num_hidden_layers= 2 #3
             self.num_attention_heads= 4 #8
             self.intermediate_size= 256 # 3 * 216 # 3 * hidden_size
-            self.hidden_dropout_prob= 0.2 # 0.25
-            self.attention_probs_dropout_prob= 0.2 #0.25
+            self.hidden_dropout_prob= 0.85 # 0.25
+            self.attention_probs_dropout_prob= 0.8 #0.25
             self.initializer_range= 0.02
             self.num_classes= 3 # num_classes
             self.num_channels= 1

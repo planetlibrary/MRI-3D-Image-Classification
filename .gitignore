@@ -3,3 +3,4 @@ data/
 nicarav/
 __pycache__/
 outputs/
+test_expo_critical.py

@@ -98,7 +98,7 @@ def plot_metrics(config):
 
     # Plot training metrics
     plt.figure(figsize=(12, 6))
-    sns.lineplot(data=train_melted, x='epoch', y='scores', hue='metric', marker='o')
+    sns.lineplot(data=train_melted, x='epoch', y='scores', hue='metric')
     plt.title('(a). Training Metrics vs Epochs')
     plt.xlabel('Epoch')
     plt.ylabel('Score')
@@ -110,7 +110,7 @@ def plot_metrics(config):
 
     # Plot testing metrics
     plt.figure(figsize=(12, 6))
-    sns.lineplot(data=test_melted, x='epoch', y='scores', hue='metric', marker='o')
+    sns.lineplot(data=test_melted, x='epoch', y='scores', hue='metric')
     plt.title('(b). Testing Metrics vs Epochs')
     plt.xlabel('Epoch')
     plt.ylabel('Score')

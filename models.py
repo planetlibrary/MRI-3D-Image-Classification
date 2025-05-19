@@ -90,27 +90,27 @@ class ViT3D_V1(nn.Module):
 
 
 class ViTForClassfication_V2(nn.Module):
-    def __init__(self, input_channels=1, hidden_size=27, num_classes=3, num_layers=2):
+    def __init__(self, input_channels=1, hidden_size=500, num_classes=3, num_layers=4):
         super().__init__()
         
         # Using built-in PyTorch modules for 3D patch extraction
         self.embedding = nn.Sequential(
-            nn.Conv3d(input_channels, 32, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm3d(32),
+            nn.Conv3d(input_channels, 512, kernel_size=3, stride=2, padding=1),
+            # nn.BatchNorm3d(32),
             nn.GELU(),
-            nn.Conv3d(32, 64, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm3d(64),
+            nn.Conv3d(512,512, kernel_size=3, stride=2, padding=1),
+            # nn.BatchNorm3d(64),
             nn.GELU(),
-            nn.Conv3d(64, 128, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm3d(128),
+            nn.Conv3d(512,512, kernel_size=3, stride=2, padding=1),
+            # nn.BatchNorm3d(128),
             nn.GELU(),
-            nn.Conv3d(128, 256, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm3d(256),
+            nn.Conv3d(512,512, kernel_size=3, stride=2, padding=1),
+            # nn.BatchNorm3d(256),
             nn.GELU(),
-            nn.Conv3d(256, 512, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm3d(512),
-            nn.GELU(),
-            nn.MaxPool3d(kernel_size=2, stride=2),
+            # nn.Conv3d(512,512, kernel_size=3, stride=2, padding=1),
+            # nn.BatchNorm3d(512),
+            # nn.GELU(),
+            # nn.MaxPool3d(kernel_size=2, stride=2),
         )
         
         # Flatten output to get patch embeddings
@@ -122,21 +122,21 @@ class ViTForClassfication_V2(nn.Module):
         num_patches = 512
         
         # Class token parameter
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, hidden_size))
+        # self.cls_token = nn.Parameter(torch.zeros(1, 1, hidden_size))
         
         # Position embeddings for patches + class token
-        self.position_embeddings = nn.Parameter(torch.zeros(1, num_patches + 1, hidden_size))
+        # self.position_embeddings = nn.Parameter(torch.zeros(1, num_patches + 1, hidden_size))
         
         # Linear projection for patch embeddings
         # Input: [batch, 512, 27]
         # Output: [batch, 512, hidden_size]
-        self.token_projection = nn.Linear(27, hidden_size)
+        # self.token_projection = nn.Linear(27, hidden_size)
         
         # Dropout
-        self.dropout = nn.Dropout(0.3)
+        # self.dropout = nn.Dropout(0.3)
         
         # Make sure nhead divides hidden_size evenly
-        nhead = 9
+        nhead = 64
         
         # Custom implementation of TransformerEncoder to match parameter count
         # Use two layers of TransformerEncoderLayer
@@ -144,22 +144,24 @@ class ViTForClassfication_V2(nn.Module):
             TransformerEncoderLayer(
                 d_model=hidden_size,
                 nhead=nhead,
-                dim_feedforward=hidden_size * 9,  # Increased to match parameter count
-                dropout=0.75,
+                dim_feedforward=hidden_size,  # Increased to match parameter count
+                # dropout=0.75,
                 activation='gelu',
                 batch_first=True
             ) for _ in range(num_layers)
         ])
         
         # Layer normalization before and after transformer
-        self.pre_norm = nn.LayerNorm(hidden_size)
-        self.post_norm = nn.LayerNorm(hidden_size)
+        # self.pre_norm = nn.LayerNorm(hidden_size)
+        # self.post_norm = nn.LayerNorm(hidden_size)
         
         # Attention pooling
-        self.attention_pool = nn.Linear(hidden_size, 1)
+        # self.attention_pool = nn.Linear(hidden_size, 1)
         
         # Classification head
-        self.classifier = nn.Linear(hidden_size * 2, num_classes)
+        self.classifier = nn.Sequential(nn.Linear(hidden_size, 1024),
+        nn.Linear(1024, num_classes))
+        # nn.Linear(hidden_size * 2, num_classes)
         
     def forward(self, x):
         # Extract features using convolutional layers
@@ -172,47 +174,48 @@ class ViTForClassfication_V2(nn.Module):
         # Input: [batch, 512, 3, 3, 3]
         # Output: [batch, 512, 27]
         x = self.flatten(x)
+        # print(x.shape)
         
         # Project patch embeddings to hidden dimension
         # Input: [batch, 512, 27]
         # Output: [batch, 512, hidden_size]
-        x = self.token_projection(x)
+        # x = self.token_projection(x)
         
         # Add class token
         # Input: [batch, 512, hidden_size]
         # Output: [batch, 513, hidden_size]
-        cls_tokens = self.cls_token.expand(batch_size, -1, -1)
-        x = torch.cat((cls_tokens, x), dim=1)
+        # cls_tokens = self.cls_token.expand(batch_size, -1, -1)
+        # x = torch.cat((cls_tokens, x), dim=1)
         
         # Add position embeddings
         # Input: [batch, 513, hidden_size]
         # Output: [batch, 513, hidden_size]
-        x = x + self.position_embeddings
+        # x = x + self.position_embeddings
         
         # Apply dropout
-        x = self.dropout(x)
+        # x = self.dropout(x)
         
         # Apply transformer encoder layers manually
-        x = self.pre_norm(x)
+        # x = self.pre_norm(x)
         for layer in self.transformer_encoder_layers:
             x = layer(x)
-        x = self.post_norm(x)
+        # x = self.post_norm(x)
         
         # Extract CLS token and patch tokens
-        cls_token = x[:, 0]  # [batch, hidden_size]
-        patch_tokens = x[:, 1:]  # [batch, 512, hidden_size]
+        # cls_token = x[:, 0]  # [batch, hidden_size]
+        # patch_tokens = x[:, 1:]  # [batch, 512, hidden_size]
         
         # Apply attention pooling to patch tokens
         # Calculate attention weights
-        weights = F.softmax(self.attention_pool(patch_tokens).squeeze(-1), dim=1)  # [batch, 512]
+        # weights = F.softmax(self.attention_pool(patch_tokens).squeeze(-1), dim=1)  # [batch, 512]
         
         # Apply weights to get context vector
-        context = torch.bmm(weights.unsqueeze(1), patch_tokens).squeeze(1)  # [batch, hidden_size]
+        # context = torch.bmm(weights.unsqueeze(1), patch_tokens).squeeze(1)  # [batch, hidden_size]
         
         # Concatenate class token and context for final classification
         # Input: [batch, hidden_size], [batch, hidden_size]
         # Output: [batch, hidden_size*2]
-        x = torch.cat([cls_token, context], dim=1)
+        # x = torch.cat([cls_token, context], dim=1)
         
         # Classification
         # Input: [batch, hidden_size*2]
@@ -326,7 +329,7 @@ class Embeddings(nn.Module):
         def pe(pos, d):
             pe = torch.zeros((pos.shape[0], d))
             div_term = torch.exp(torch.arange(0, d, 2) * -(torch.log(torch.tensor(10000.0)) / d))
-            print('pe, pos shape: ', pe.shape, pos.shape)
+            # print('pe, pos shape: ', pe.shape, pos.shape)
             pe[:, 0::2] = torch.sin(pos.unsqueeze(1) * div_term)
             pe[:, 1::2] = torch.cos(pos.unsqueeze(1) * div_term)
             return pe
@@ -651,6 +654,7 @@ def get_model(model_name, cfg):
             dropout=cfg.dropout
         )
     elif model_name == "ViTForClassfication_V2":
+        print(cfg.__dict__)
         return ViTForClassfication_V2(
             input_channels=cfg.input_channels, 
             hidden_size=cfg.hidden_size, 

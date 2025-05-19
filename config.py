@@ -21,8 +21,8 @@ class Config:
 
         # Training Parameters
         self.num_epochs = 50
-        self.batch_size = 8
-        self.learning_rate = 1e-4
+        self.batch_size = 25
+        self.learning_rate = 1e-3
         self.weight_decay = 2e-3
         self.scheduler_step = 10
         self.scheduler_gamma = 0.1
@@ -38,10 +38,9 @@ class Config:
             self.input_channels = 1          # Adjust based on your 3D input (e.g., grayscale)
             self.image_size = 192
             self.patch_size = 16
-            self.emb_dim = 128
             self.num_heads = 4
-            self.num_layers = 6
-            self.hidden_size = 27
+            self.num_layers = 4
+            self.hidden_size = 1728
             self.dropout = 0.1
 
         elif self.model_name == "ViT3D_V1":
@@ -83,6 +82,6 @@ class Config:
 
 
         # System
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda:1" if torch.cuda.is_available() else "cpu"
         self.num_workers = 4
         self.seed = 42

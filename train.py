@@ -41,6 +41,7 @@ def train_one_epoch(model, loader, criterion, optimizer, scheduler, device):
         all_labels.extend(labels.cpu().tolist())
 
     scheduler.step()
+    torch.cuda.empty_cache()
 
     metrics = compute_metrics(all_labels, all_preds)
     avg_loss = running_loss / total
@@ -68,6 +69,7 @@ def evaluate(model, loader, criterion, device, phase="Validation"):
             correct += (preds == labels).sum().item()
             total += labels.size(0)
 
+    torch.cuda.empty_cache()
     metrics = compute_metrics(all_labels, all_preds)
 
     avg_loss = running_loss / total
@@ -82,16 +84,18 @@ def evaluate(model, loader, criterion, device, phase="Validation"):
 
 if __name__ == '__main__':
     # fs = folder_structure()
-    cfg = Config()
     parser = argparse.ArgumentParser(description="Train a 3D image classification model.")
     parser.add_argument('--data_dir', type=str, required=True, help='Path to root dataset.')
     parser.add_argument('--output_dir', type=str, required=True, help='Path to save logs and checkpoints')
     parser.add_argument('--model_name', type=str, default='ViTForClassification')
-    parser.add_argument('--epochs', type=int, default=cfg.num_epochs)
-    parser.add_argument('--batch_size', type=int, default=cfg.batch_size)
+    parser.add_argument('--epochs', type=int, default=50)
+    parser.add_argument('--batch_size', type=int, default=25)
     args = parser.parse_args()
 
+    cfg = Config(args.model_name)
     project_intro(cfg.project_name)
+
+    torch.cuda.empty_cache()
 
 
     os.makedirs(os.path.join(args.output_dir,f'{cfg.model_name}', 'tensorboard'), exist_ok=True)
@@ -101,7 +105,6 @@ if __name__ == '__main__':
 
     # Update config dynamically if needed
     cfg.batch_size = args.batch_size
-    cfg.model_name = args.model_name
     cfg.num_epochs = args.epochs
     cfg.train_dir = os.path.join(args.data_dir, 'Train')
     cfg.test_dir = os.path.join(args.data_dir, 'Test')
@@ -114,13 +117,20 @@ if __name__ == '__main__':
         num_workers=cfg.num_workers
     )
 
+    # Memory optimization configurations
+    torch.backends.cudnn.benchmark = True  # Enable CuDNN auto-tuner
+    torch.set_float32_matmul_precision('high')  # For Ampere+ GPUs
+    
+    # Add memory fragmentation prevention
+    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
+
     # print(device)
 
     model = get_model(cfg.model_name, cfg).to(device)
     print(f"Loaded {cfg.model_name} successfully on {next(model.parameters()).device}")
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay)
-    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 20, 30, 40, 50], gamma=0.7)
+    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 50, 100, 120, 150, 180, 200, 230, 250, 270, 280], gamma=0.72)
 
     best_test_loss = np.inf
     best_test_acc = 0
@@ -146,7 +156,6 @@ if __name__ == '__main__':
     f.close()
 
     for epoch in range(1, args.epochs + 1):
-
         start = time.time()
         
         print(f'\nEpoch {epoch}/{args.epochs}')
@@ -204,6 +213,19 @@ if __name__ == '__main__':
             best_test_acc = test_metrics['accuracy']
             save_path = os.path.join(cfg.checkpoints_dir, 'best_model.pth')
             save_checkpoint(model, save_path)
+        
+        # except torch.cuda.OutOfMemoryError:
+        #     print(f"\nOOM at epoch {epoch}. Attempting recovery...")
+        #     torch.cuda.empty_cache()
+        #     args.batch_size = max(1, args.batch_size // 2)
+        #     print(f"Reducing batch size to {args.batch_size} and retrying...")
+            
+        #     # # Reinitialize data loaders with new batch size
+        #     # train_loader, val_loader, test_loader = get_dataloaders(
+        #     #     cfg.train_dir, cfg.val_dir, cfg.test_dir,
+        #     #     batch_size=args.batch_size,
+        #     # )
+            # continue
 
 
     # Save final metrics

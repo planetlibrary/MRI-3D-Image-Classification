@@ -1,11 +1,12 @@
 # dataloader.py
 
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 from pathlib import Path
 import glob
 import os
-from utils import print_dist
+from utils.utils import print_dist
 
 # Optional: Add transformations later like torchio, torchvision, etc.
 
@@ -30,6 +31,7 @@ class FolderDataset(Dataset):
         # print(f'File Path: {file_path}')
         tensor = torch.load(file_path)  # Should be a preprocessed 3D tensor
         label = self._extract_label(file_path)
+        # print(label)
 
         if self.transform:
             tensor = self.transform(tensor)
@@ -55,7 +57,7 @@ def get_dataloaders(train_path, val_path, test_path, batch_size=8, num_workers=4
     val_dist = val_dataset.label_distribution()
     test_dist = test_dataset.label_distribution()
 
-    print('Class Distribution as follows:')
+    
     print_dist(train_dist, test_dist, val_dist)
 
 

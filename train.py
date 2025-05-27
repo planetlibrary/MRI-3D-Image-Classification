@@ -13,7 +13,8 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from config import Config
 from data_loader import get_dataloaders
 from models import get_model
-from utils import *
+from utils.utils import *
+from torchinfo import summary
 
 def train_one_epoch(model, loader, criterion, optimizer, scheduler, device):
     model.train()
@@ -23,10 +24,20 @@ def train_one_epoch(model, loader, criterion, optimizer, scheduler, device):
     all_preds, all_labels = [], []
 
     for inputs, labels in tqdm(loader, desc="Training"):
-        inputs, labels = inputs.to(device), labels.to(device)
+        inputs, labels = inputs.to(device, non_blocking=True), labels.to(device,non_blocking=True)
+
+        if torch.isnan(inputs).any():
+            print(inputs.shape)
 
         optimizer.zero_grad()
         outputs = model(inputs)
+
+        if torch.isnan(outputs).any():
+           print(outputs.shape, torch.isnan(inputs).any())
+
+        # print(outputs.shape, labels.shape)
+        # print(outputs, labels)
+
 
         loss = criterion(outputs, labels)
         loss.backward()
@@ -34,6 +45,7 @@ def train_one_epoch(model, loader, criterion, optimizer, scheduler, device):
 
         running_loss += loss.item() * inputs.size(0)
         preds = outputs.argmax(dim=1)
+        # print(preds, labels)
         correct += (preds == labels).sum().item()
         total += labels.size(0)
 
@@ -89,7 +101,9 @@ if __name__ == '__main__':
     parser.add_argument('--output_dir', type=str, required=True, help='Path to save logs and checkpoints')
     parser.add_argument('--model_name', type=str, default='ViTForClassification')
     parser.add_argument('--epochs', type=int, default=50)
-    parser.add_argument('--batch_size', type=int, default=25)
+    parser.add_argument('--batch_size', type=int, default=2)
+
+    prj_start = time.time() 
     args = parser.parse_args()
 
     cfg = Config(args.model_name)
@@ -109,6 +123,9 @@ if __name__ == '__main__':
     cfg.train_dir = os.path.join(args.data_dir, 'Train')
     cfg.test_dir = os.path.join(args.data_dir, 'Test')
 
+    
+    training_knobs(cfg.__dict__)
+
     # print(cfg.num_epochs)
 
     train_loader, val_loader, test_loader = get_dataloaders(
@@ -127,6 +144,10 @@ if __name__ == '__main__':
     # print(device)
 
     model = get_model(cfg.model_name, cfg).to(device)
+    model_summary(model, [cfg.batch_size, cfg.input_channels, cfg.image_size, cfg.image_size, cfg.image_size])
+    # res = summary(model, [cfg.batch_size, cfg.input_channels, cfg.image_size, cfg.image_size, cfg.image_size])
+
+    
     print(f"Loaded {cfg.model_name} successfully on {next(model.parameters()).device}")
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay)
@@ -236,5 +257,6 @@ if __name__ == '__main__':
     plot_metrics(cfg)
     plot_save_config(cfg)
 
-    print(f"\nTraining completed. Best Test Loss: {best_test_loss:.4f} | Best Test Accuracy: {best_test_acc:.4f}")
+    prj_end = time.time()
+    print(f"\nTraining completed. Best Test Loss: {best_test_loss:.4f} | Best Test Accuracy: {best_test_acc:.4f} | Totat time taken: {get_time_diff(prj_start, prj_end)}")
     writer.close()

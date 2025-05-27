@@ -14,12 +14,79 @@ import time
 import seaborn as sns
 import matplotlib.pyplot as plt
 from pathlib import Path
+from torchinfo import summary
 from typing import Union
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
 def project_intro(name):
     ascii_art = pyfiglet.figlet_format(name,font="big")
     print(ascii_art)
+
+def model_summary(model, input_size, **kwargs):
+    print("Model Details as follows: 👇🏽")
+    # Get summary data
+    info = summary(model, input_size=input_size, verbose=0, **kwargs)
+
+    # Left: Model layers table
+    model_table = PrettyTable()
+    model_table.field_names = ["Layer (type)", "Output Shape", "Param #"]
+    for layer in info.summary_list:
+        model_table.add_row([
+            layer.class_name,
+            str(layer.output_size),
+            f"{layer.num_params:,}"
+        ])
+    model_lines = model_table.get_string().splitlines()
+
+    # Right: Stats table
+    stats_table = PrettyTable()
+    stats_table.field_names = ["Stats", "Count"]
+    stats_table.add_row(["Total", f"{info.total_params:,}"])
+    stats_table.add_row(["Trainable", f"{info.trainable_params:,}"])
+    stats_table.add_row(["Non-trainable", f"{info.total_params - info.trainable_params:,}"])
+    stats_table.add_row(["Total mult-adds", f"{info.total_mult_adds:,}"])
+    stats_lines = stats_table.get_string().splitlines()
+
+    # Pad the shorter table
+    max_len = max(len(model_lines), len(stats_lines))
+    model_lines += [" " * len(model_lines[0])] * (max_len - len(model_lines))
+    stats_lines += [" " * len(stats_lines[0])] * (max_len - len(stats_lines))
+
+    # Combine line by line
+    for m_line, s_line in zip(model_lines, stats_lines):
+        print(f"{m_line}   {s_line}")
+
+
+def training_knobs(cfg_dict):
+    print("Training Knobs:  👇🏽")
+    items = list(cfg_dict.items())
+    mid = len(items) // 2 + len(items) % 2  # Left half gets extra if odd
+
+    left_items = items[:mid]
+    right_items = items[mid:]
+
+    # Prepare row strings
+    left_table = PrettyTable()
+    left_table.field_names = ["Parameter", "Value"]
+    for k, v in left_items:
+        left_table.add_row([k, v])
+    left_lines = left_table.get_string().splitlines()
+
+    right_table = PrettyTable()
+    right_table.field_names = ["Parameter", "Value"]
+    for k, v in right_items:
+        right_table.add_row([k, v])
+    right_lines = right_table.get_string().splitlines()
+
+    # Pad shorter table if needed
+    max_lines = max(len(left_lines), len(right_lines))
+    left_lines += [" " * len(left_lines[0])] * (max_lines - len(left_lines))
+    right_lines += [" " * len(right_lines[0])] * (max_lines - len(right_lines))
+
+    # Print side by side
+    for l, r in zip(left_lines, right_lines):
+        print(f"{l}   {r}")
+
 
 def compute_metrics(y_true, y_pred):
     """Compute common classification metrics and return them as a dictionary.
@@ -212,6 +279,7 @@ def get_time_diff(start: float, end: float) -> str:
 
 
 def print_dist(*data):
+    print('Class Distribution as follows👇🏽: ')
     table = PrettyTable()
     table.field_names = ["Class", "Train", "Test", "Validation"]
     for cls in ['CN', 'MCI', 'AD']:

@@ -155,10 +155,6 @@ if __name__=='__main__':
         new_image = nib.Nifti1Image(upscaled_heatmap, affine=img_pkg[2])
         nib.save(new_image, os.path.join(args.output_dir, img_pkg[-1],"heatmap.nii.gz"))
         
-        # Print progress
-        # elapsed = time.time() - epoch_start_time
-        # total_elapsed = time.time() - start_time
-        # print(f"Finished visualization of image {i+1}/{len(indices)}. Time: {elapsed:.2f}s. Total: {total_elapsed:.2f}s.")
         
         # Close the figure to free memory
         plt.close(fig)

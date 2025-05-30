@@ -1,17 +1,18 @@
 # vizualisation utils
-
-import torch
-import numpy as np
-import matplotlib.pyplot as plt
-import nibabel as nib
-from scipy.ndimage import zoom
-
 import os
 import sys
 import json
 import time
+from pathlib import Path 
 import datetime
+import numpy as np
+import torch
 from models import get_model
+import nibabel as nib
+import matplotlib.pyplot as plt
+from scipy.ndimage import zoom
+import imageio
+from io import BytesIO
 from types import SimpleNamespace
 
 activation = {}
@@ -92,7 +93,7 @@ def get_heatmap(model, forward_attentions, attention_coeff, return_map=True):
     heatmap = np.squeeze(heatmap)
     heatmap = np.maximum(heatmap, 0)
 
-    upscaled_heatmap = zoom(heatmap, (24, 24, 24), mode='nearest')
+    upscaled_heatmap = zoom(heatmap, (8, 8, 8), mode='nearest')
 
     upscaled_heatmap = np.uint8(upscaled_heatmap*255)
     print(f'Shape of up_heatmap: {upscaled_heatmap.shape}')
@@ -114,11 +115,7 @@ def get_heatmap(model, forward_attentions, attention_coeff, return_map=True):
 #     return class_attention_map
 
 
-from pathlib import Path 
 def read_image_folder(img_folder, config):
-    """
-    test
-    """
     # check if the path is folder or not
     img_folder = Path(img_folder)
     img_paths = []
@@ -148,7 +145,6 @@ def read_image_folder(img_folder, config):
         image = original_image.get_fdata()
         xdim, ydim, zdim = image.shape
         image = np.pad(image, [((512-xdim)//2, (512-xdim)//2), ((512-ydim)//2, (512-ydim)//2), ((512-zdim)//2, (512-zdim)//2)], 'constant', constant_values=0)
-        #image = image.reshape(image.shape[2], image.shape[1], image.shape[0])
 
         # print(config)
 
@@ -157,10 +153,6 @@ def read_image_folder(img_folder, config):
         config["configs"]['processed_image_size'] / image.shape[1],
         config["configs"]['processed_image_size'] / image.shape[2]
         )
-
-        # width_factor= config["configs"]['processed_image_size'] / image.shape[0]
-        # height_factor=config[ "configs"]['processed_image_size'] / image.shape[1]
-        # depth_factor= config["configs"]['processed_image_size'] / image.shape[-1]
 
         image = zoom(image, zoom_factors, order=1)
         original_image = image.copy()
@@ -202,3 +194,74 @@ def read_image_folder(img_folder, config):
 
 
      
+
+
+def mri_gif_maker(image, heatmap, save_path):
+
+
+    s = image.copy()
+    frames = []
+
+    # Iterate and collect frames
+    for i in range(s.shape[0]):
+        fig, axes = plt.subplots(1, 3, figsize=(6, 2))
+
+        axial = np.rot90(s[:, :, i])
+        axial_heatmap = np.rot90(heatmap[:, :, i])
+
+        coronal = np.rot90(s[:, i, :])
+        coronal_heatmap = np.rot90(heatmap[:, i, :])
+
+        sagittal = np.rot90(s[i, :, :])
+        sagittal_heatmap = np.rot90(heatmap[i, :, :])
+
+        # Create mask for side-by-side visualization
+        mask = np.concatenate((np.ones((64,64)), np.zeros((64,64))), axis=1)
+
+        # sagittal view processing
+        sagittal = np.concatenate((sagittal, sagittal), axis=1)
+        sagittal_heatmap = np.concatenate((sagittal_heatmap, sagittal_heatmap), axis=1)
+        sagittal_heatmap = np.ma.masked_where(mask == 1, sagittal_heatmap)
+
+        # Coronal view processing
+        coronal = np.concatenate((coronal, coronal), axis=1)
+        coronal_heatmap = np.concatenate((coronal_heatmap, coronal_heatmap), axis=1)
+        coronal_heatmap = np.ma.masked_where(mask == 1, coronal_heatmap)
+        
+        # Axial view processing
+        axial = np.concatenate((axial, axial), axis=1)
+        axial_heatmap = np.concatenate((axial_heatmap, axial_heatmap), axis=1)
+        axial_heatmap = np.ma.masked_where(mask == 1, axial_heatmap)
+
+
+        axes[0].imshow(axial, cmap='gray')
+        axes[0].imshow(axial_heatmap, alpha=0.7, cmap='jet')
+        axes[0].set_title(f'Axial Slice {i}')
+        axes[0].axis('off')
+
+        axes[1].imshow(coronal, cmap='gray')
+        axes[1].imshow(coronal_heatmap, alpha=0.7, cmap='jet')
+        axes[1].set_title(f'Coronal Slice {i}')
+        axes[1].axis('off')
+
+        axes[2].imshow(sagittal, cmap='gray')
+        axes[2].imshow(sagittal_heatmap, alpha=0.7, cmap='jet')  # Adjusted alpha for better overlay visibility
+        axes[2].set_title(f'Sagittal Slice {i}')
+        axes[2].axis('off')
+
+        plt.tight_layout()
+
+        buf = BytesIO()
+        plt.savefig(buf, format='png')
+        buf.seek(0)
+        frames.append(imageio.v2.imread(buf))
+        plt.close(fig)
+
+    
+    # Save as GIF with 0.2x speed (i.e., slow motion)
+    # Assuming original speed ~10 fps => 0.2x speed => 2 fps => 500ms/frame
+
+    os.makedirs(save_path, exist_ok = True)
+    
+    imageio.mimsave(os.path.join(save_path, 'brain_slices.gif'), frames, duration=0.5)
+    print("GIF saved as brain_slices.gif")

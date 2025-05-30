@@ -93,42 +93,42 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
-class TransformerEncoderLayerWithAttn(nn.TransformerEncoderLayer):
-    def __init__(self, *args, **kwargs):
-        super(TransformerEncoderLayerWithAttn, self).__init__(*args, **kwargs)
+# class TransformerEncoderLayerWithAttn(nn.TransformerEncoderLayer):
+#     def __init__(self, *args, **kwargs):
+#         super(TransformerEncoderLayerWithAttn, self).__init__(*args, **kwargs)
 
-    def forward(self, src, src_mask=None, src_key_padding_mask=None, is_causal=False):
-        # Standard forward with attention capture
-        src2, attn_weights = self.self_attn(
-            src, src, src,
-            attn_mask=src_mask,
-            key_padding_mask=src_key_padding_mask,
-            need_weights=True,
-            average_attn_weights=False  # to get per-head weights
-        )
-        src = src + self.dropout1(src2)
-        src = self.norm1(src)
-        src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
-        src = src + self.dropout2(src2)
-        src = self.norm2(src)
-        return src, attn_weights
+#     def forward(self, src, src_mask=None, src_key_padding_mask=None, is_causal=False):
+#         # Standard forward with attention capture
+#         src2, attn_weights = self.self_attn(
+#             src, src, src,
+#             attn_mask=src_mask,
+#             key_padding_mask=src_key_padding_mask,
+#             need_weights=True,
+#             average_attn_weights=False  # to get per-head weights
+#         )
+#         src = src + self.dropout1(src2)
+#         src = self.norm1(src)
+#         src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
+#         src = src + self.dropout2(src2)
+#         src = self.norm2(src)
+#         return src, attn_weights
 
-class TransformerEncoderWithAttn(nn.Module):
-    def __init__(self, layer, num_layers):
-        super().__init__()
-        self.layers = nn.ModuleList([layer for _ in range(num_layers)])
+# class TransformerEncoderWithAttn(nn.Module):
+#     def __init__(self, layer, num_layers):
+#         super().__init__()
+#         self.layers = nn.ModuleList([layer for _ in range(num_layers)])
 
-    def forward(self, src):
-        attn_maps = []
-        for mod in self.layers:
-            src, attn = mod(src)
-            attn_maps.append(attn)  # attn shape: [B, num_heads, seq_len, seq_len]
-        return src, attn_maps
+#     def forward(self, src):
+#         attn_maps = []
+#         for mod in self.layers:
+#             src, attn = mod(src)
+#             attn_maps.append(attn)  # attn shape: [B, num_heads, seq_len, seq_len]
+#         return src, attn_maps
 
 
 
 class ViTForClassification_V2(nn.Module):
-    def __init__(self, input_channels=1, hidden_size=512, num_classes=3, num_layers=4, initializer_range=0.02):
+    def __init__(self, input_channels, hidden_size, num_classes, num_heads,attn_dim_feedforward, num_layers, initializer_range, attn_dropout, embed_dropout):
         super().__init__()
         num_patches = 512
         self.initializer_range = initializer_range
@@ -136,256 +136,84 @@ class ViTForClassification_V2(nn.Module):
         # Using built-in PyTorch modules for 3D patch extraction
         self.embedding = nn.Sequential(
             nn.Conv3d(input_channels, num_patches, kernel_size=3, stride=1, padding=1),
+            nn.Tanh(),
             nn.MaxPool3d(kernel_size=2),
-            nn.BatchNorm3d(num_patches),
-            # nn.Dropout3d(0.4),
-            nn.ReLU(),
-            nn.Conv3d(num_patches,num_patches, kernel_size=3, stride=1, padding=1),
-            nn.MaxPool3d(kernel_size=2),
-            nn.BatchNorm3d(num_patches),
-            # nn.Dropout3d(0.4),
-            nn.ReLU())
 
+            nn.Conv3d(num_patches,num_patches, kernel_size=3, stride=1, padding=1),
+            nn.Tanh(),
+            nn.MaxPool3d(kernel_size=2),
+
+            nn.Conv3d(num_patches,num_patches, kernel_size=3, stride=1, padding=1),
+            nn.Tanh(),
+            nn.MaxPool3d(kernel_size=2),
+
+            nn.Conv3d(num_patches,num_patches, kernel_size=3, stride=1, padding=1),
+            nn.Tanh(),
+            nn.MaxPool3d(kernel_size=2),
+            
+            # nn.Conv3d(num_patches,num_patches, kernel_size=3, stride=1, padding=1),
+            # nn.Tanh(),
+            # nn.MaxPool3d(kernel_size=2),
+            )
         self.conv1 = nn.Conv3d(num_patches,num_patches, kernel_size=3, stride=1, padding=1)
         self.max_pool1 = nn.MaxPool3d(kernel_size=2)
-        self.bn1 = nn.BatchNorm3d(num_patches)
-        # nn.Dropout3d(0.4),
         self.relu1 = nn.ReLU()
-        # nn.Conv3d(num_patches,num_patches, kernel_size=3, stride=1, padding=1),
-        # nn.MaxPool3d(kernel_size=3),
-        # nn.BatchNorm3d(num_patches),
-        # # nn.Dropout3d(0.4),
-        # nn.GELU(),
-        # nn.Conv3d(num_patches,num_patches, kernel_size=3, stride=2, padding=1),
-        # nn.BatchNorm3d(num_patches),
-        # nn.Dropout3d(0.4),
-        # nn.GELU()
-
-        # nn.BatchNorm3d(256),
-        # nn.GELU(),
-        # nn.Conv3d(512,512, kernel_size=3, stride=2, padding=1),
-        # nn.BatchNorm3d(512),
-        # nn.GELU(),
-        # nn.MaxPool3d(kernel_size=2, stride=2),
-        # )
-        
-        # Flatten output to get patch embeddings
-        # After the convolutions, the shape will be [batch, 512, 3, 3, 3]
-        # After flattening, it becomes [batch, 512, 27]
-        # self.flatten = nn.Flatten(2,4)  # Flatten from dim 2 to dim 4
-        # self.flatten1 = nn.Flatten()  # Flatten from dim 2 to dim 4
-        
-        # Calculate the number of patches after flattening (512)
-        
-        # Class token parameter
+        self.pre_trans_proj = nn.Linear(4096, hidden_size)
+        self.bn2 = nn.BatchNorm1d(hidden_size)
+        self.embed_dropout = nn.Dropout(embed_dropout)
         # self.cls_token = nn.Parameter(torch.zeros(1, 1, hidden_size))
-        
-        # Position embeddings for patches + class token
-        # self.position_embeddings = nn.Parameter(torch.zeros(1, num_patches + 1, hidden_size))
-        
-        # Linear projection for patch embeddings
-        # Input: [batch, 512, 27]
-        # Output: [batch, 512, hidden_size]
-        # self.projection = nn.Linear(512, hidden_size)
-        
-        # Dropout
-        # self.dropout = nn.Dropout(0.3)
-        
-        # Make sure nhead divides hidden_size evenly
-        # nhead = 64
-        
-        # Custom implementation of TransformerEncoder to match parameter count
-        # Use two layers of TransformerEncoderLayer
-        # self.layers = nn.ModuleList([
-        #     TransformerEncoderLayerWithAttn(
-        #         d_model=hidden_size,
-        #         nhead=18,
-        #         dim_feedforward=hidden_size * 3,
-        #         activation='gelu',
-        #         batch_first=True
-        #     ) for _ in range(num_layers)
-        # ])
-
-        self.bn2 = nn.BatchNorm1d(num_patches)
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, hidden_size))
-
-        self.position_embeddings = nn.Parameter(torch.zeros(1, num_patches+1, hidden_size))
-
-        # self.transformer = nn.TransformerEncoder(
-        #     encoder_layer=nn.TransformerEncoderLayer(
-        #         d_model=hidden_size,
-        #         nhead=32,  # Should divide hidden_size
-        #         dim_feedforward=hidden_size*2,
-        #         activation='gelu',
-        #         batch_first=True,
-        #         dropout=0.75
-        #     ),
-        #     num_layers=num_layers
-        # )
-
-        self.layer = TransformerEncoderLayerWithAttn(
-        d_model=hidden_size,
-        nhead=16,
-        dim_feedforward=hidden_size * 2,
-        activation='gelu',
-        batch_first=True,
-        dropout=0.3
+        # self.position_embeddings = nn.Parameter(torch.zeros(1, num_patches+1, hidden_size))
+        self.transformer = nn.TransformerEncoder(
+            encoder_layer=nn.TransformerEncoderLayer(
+                d_model=hidden_size,
+                nhead=num_heads,  # Should divide hidden_size
+                dim_feedforward=attn_dim_feedforward,
+                activation='gelu',
+                batch_first=True,
+                dropout=attn_dropout
+            ),
+            num_layers=num_layers
         )
-        self.transformer = TransformerEncoderWithAttn(self.layer, num_layers=num_layers)
-
-
-        # print(self.transformer)
-        
-        # Layer normalization before and after transformer
-        # self.pre_norm = nn.LayerNorm(hidden_size)
-        # self.post_norm = nn.LayerNorm(hidden_size)
-        
         # Attention pooling
-        self.attention_pool = nn.Linear(hidden_size, 1)
-        # In forward:
-        # attn_scores = self.attn_pool(x).squeeze(-1)  # [B, N]
-        # attn_weights = torch.softmax(attn_scores, dim=-1)
-
-        
+        # self.attention_pool = nn.Linear(hidden_size, 1)
         # Classification head
-        self.classifier = nn.Sequential(nn.Linear(2*hidden_size, num_classes),
-        # nn.Dropout(0.4)
-        # nn.Linear(1024, num_classes)
-        )
+        self.classifier = nn.Sequential(nn.Linear(hidden_size, num_classes))
         # nn.Linear(hidden_size * 2, num_classes)
-
         self.apply(self._init_weights)
         
     def forward(self, x, output_attns = False):
-        # print(f"Shape of x: {x.shape}")
-        # Extract features using convolutional layers
-        # Input: [batch, 1, 192, 192, 192]
-        # Output: [batch, 512, 3, 3, 3]
         x = self.embedding(x)
-
         x = self.conv1(x)
-        x = self.max_pool1(x)
-        x = self.bn1(x)
         x = self.relu1(x)
-
-        # print(f"shape of x: {x.shape}")
-        batch_size = x.shape[0]
-        x = rearrange(x, 'b c d w h -> b c (d w h)')
-        # print(f"shape of x: {x.shape}")
-
-        # for layer in self.layers:
-        #     x, attn_weights = layer(x)
-
-        # print(attn_weights.shape)
-
-        # avg_attn = attn_weights.mean(dim=1)
-        # print(avg_attn.shape)
-        # attn_sum = avg_attn.mean(dim=1)      # (b, seq_len)
-        # print(attn_sum.shape)
-        # attn_norm = attn_sum / attn_sum.sum(dim=1, keepdim=True) 
+        x = self.max_pool1(x)
+        # x = self.bn1(x)
+        x = rearrange(x, 'b c d w h -> b (c d w h)')
+        # print(x.shape)
+        x=self.pre_trans_proj(x)
         x = self.bn2(x)
-        cls_tokens = self.cls_token.expand(x.shape[0], -1, -1)
-        x = torch.cat((cls_tokens, x), dim=1) 
-        x += self.position_embeddings
-
-        x, attn_maps = self.transformer(x)
-        # rest = self.get_class_attention_coefficients(attn_maps)
-        # print(rest.shape)
-        # print(attn_maps[0].shape)
-
-        # plt.imshow(attn_maps[0][0,0].detach().cpu(), cmap='viridis')
-        # plt.colorbar()
-        # plt.title("Attention Map: Layer 0, Head 0")
-        # plt.savefig('test_ht.png')
-        # plt.close()
-        cls_logits, activation_logits = x[:,0,:], x[:,1:,:]
-
-        # print(f"shape of cls_logits: {cls_logits.shape}")
-        # print(f"shape of activation_logits: {activation_logits.shape}")
-        # x = torch.einsum('bs,bsd->bd', attn_norm, x)
-
-        x = torch.matmul(nn.functional.softmax(self.attention_pool(activation_logits), dim=1).transpose(-1, -2), activation_logits).squeeze(-2)
-        x = torch.cat((cls_logits, x), dim=1)
-        # print(f"shape of x: {x.shape}")
-
+        x = self.embed_dropout(x)
+        # cls_tokens = self.cls_token.expand(x.shape[0], -1, -1)
+        # x = torch.cat((cls_tokens, x), dim=1) 
+        # x += self.position_embeddings
+        # print(x.shape)
+        x= self.transformer(x)
+        # cls_logits, activation_logits = x[:,0,:], x[:,1:,:]
+        # x = torch.matmul(nn.functional.softmax(self.attention_pool(activation_logits), dim=1).transpose(-1, -2), activation_logits).squeeze(-2)
+        # x = torch.cat((cls_logits, x), dim=1)
         x = self.classifier(x)
-        # print(f"shape of x: {x.shape}")
-        if output_attns:
-            return (x,attn_maps)
-        else:
-            return x
+        return x
 
-    
-    
-        # print(x.shape)
-        
-        # Flatten to get tokens
-        # Input: [batch, 512, 3, 3, 3]
-        # Output: [batch, 512, 27]
-        # x = self.flatten(x)
-        # x = x.flatten(1)
-        # x = self.projection(x).unsqueeze(1)
-        # print(x.shape)
-        
-        # Project patch embeddings to hidden dimension
-        # Input: [batch, 512, 27]
-        # Output: [batch, 512, hidden_size]
-        # x = self.token_projection(x)
-        
-        # Add class token
-        # Input: [batch, 512, hidden_size]
-        # Output: [batch, 513, hidden_size]
-        # cls_tokens = self.cls_token.expand(batch_size, -1, -1)
-        # x = torch.cat((cls_tokens, x), dim=1)
-        
-        # Add position embeddings
-        # Input: [batch, 513, hidden_size]
-        # Output: [batch, 513, hidden_size]
-        # x = x + self.position_embeddings
-        
-        # Apply dropout
-        # x = self.dropout(x)
-        
-        # Apply transformer encoder layers manually
-        # x = self.pre_norm(x)
-        # for layer in self.transformer_encoder_layers:
-        #     x = layer(x)
-        # x = self.post_norm(x)
-        # x = self.transformer(x)
-        # x = self.flatten1(x)
-        
-        # Extract CLS token and patch tokens
-        # cls_token = x[:, 0]  # [batch, hidden_size]
-        # patch_tokens = x[:, 1:]  # [batch, 512, hidden_size]
-        
-        # Apply attention pooling to patch tokens
-        # Calculate attention weights
-        # weights = F.softmax(self.attention_pool(patch_tokens).squeeze(-1), dim=1)  # [batch, 512]
-        
-        # Apply weights to get context vector
-        # context = torch.bmm(weights.unsqueeze(1), patch_tokens).squeeze(1)  # [batch, hidden_size]
-        
-        # Concatenate class token and context for final classification
-        # Input: [batch, hidden_size], [batch, hidden_size]
-        # Output: [batch, hidden_size*2]
-        # x = torch.cat([cls_token, context], dim=1)
-        
-        # Classification
-        # Input: [batch, hidden_size*2]
-        # Output: [batch, num_classes]
-
-        # x = x[:, 0]
-        # logits = self.classifier(x)
-        
-        # return logits
     def _init_weights(self, module):
         if isinstance(module, (nn.Linear, nn.Conv3d)):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=self.initializer_range)
+            nn.init.trunc_normal_(module.weight, mean=0.0, std=self.initializer_range, a=-2, b=2)
             if module.bias is not None:
-                torch.nn.init.zeros_(module.bias)
-        elif isinstance(module, nn.Parameter):
-            nn.init.trunc_normal_(module.data, std=self.initializer_range)
-    
+                nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.LayerNorm) or isinstance(module, nn.BatchNorm3d) or isinstance(module, nn.BatchNorm1d):
+            nn.init.ones_(module.weight)
+            nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            nn.init.trunc_normal_(module.weight, mean=0.0, std=self.initializer_range, a=-2, b=2)
+
         
 
 class ConvBlock(nn.Module):
@@ -822,7 +650,12 @@ def get_model(model_name, cfg):
             input_channels=cfg.input_channels, 
             hidden_size=cfg.hidden_size, 
             num_classes=cfg.num_classes, 
-            num_layers=cfg.num_layers
+            num_heads= cfg.num_heads,
+            attn_dim_feedforward=cfg.attn_dim_feedforward,
+            num_layers=cfg.num_layers,
+            attn_dropout = cfg.attn_dropout,
+            embed_dropout = cfg.embed_dropout,
+            initializer_range = cfg.initializer_range
         )
     elif model_name == "ViTForClassification":
         return ViTForClassification(cfg)
@@ -839,19 +672,19 @@ def get_activation(name):
 if __name__ == '__main__':
     from torchinfo import summary
     # cfg = Config('ViTForClassification_V2')
-    model = ViTForClassification_V2()
-    # device = 'cuda:1' if torch.cuda.is_available() else 'cpu'
-    # model.to(device)
+    model = ViTForClassification_V2(input_channels=1, hidden_size=300, num_classes=3, num_heads = 30,attn_dim_feedforward=600, num_layers=3, initializer_range=0.02,attn_dropout=0.1, embed_dropout=0.1)
+    device = 'cuda:1' if torch.cuda.is_available() else 'cpu'
+    model.to(device)
 
-    x = torch.randn(1,1,64,64,64)
-    model(x)
-    # print(next(model.parameters()).device)
-    # print(model.max_pool1)
-    h = model.max_pool1.register_forward_hook(get_activation('last_layer'))
-    output, atnma= model(x, output_attentions=True)
-    h.remove()
-    forward_features = activation['last_layer']
-    print(activation['last_layer'].shape, )
+    # x = torch.randn(1,1,64,64,64)
+    # model(x)
+    # # print(next(model.parameters()).device)
+    # # print(model.max_pool1)
+    # h = model.max_pool1.register_forward_hook(get_activation('last_layer'))
+    # output, atnma= model(x, output_attentions=True)
+    # h.remove()
+    # forward_features = activation['last_layer']
+    # print(activation['last_layer'].shape, )
 
     # attention_weights = model.transformer.state_dict()
     # wq, wk, wv = attention_weights['layers.0.self_attn.in_proj_weight'].chunk(3, dim = 0)
@@ -862,7 +695,12 @@ if __name__ == '__main__':
     # for i,j in model.named_parameters():
     #     print(i)
 
-    # res = summary(model, [1,1,64,64,64])
+    res = summary(model, [16,1,64,64,64])
+
+    # Suppose model is an instance of ViTForClassification_V2
+    for i, layer in enumerate(model.transformer.layers):
+        print(f"Layer {i}: {layer.self_attn.num_heads} heads")
+
     # print(res.total_mult_adds/(1000**2))
     # print(res.total_input/(1000**2))
     # print(res.input_size)

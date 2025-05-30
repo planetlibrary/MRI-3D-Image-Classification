@@ -66,7 +66,7 @@ if __name__=='__main__':
         os.makedirs(os.path.join(args.output_dir, img_pkg[-1]), exist_ok = True)
         pred_path = os.path.join(args.output_dir, img_pkg[-1], 'prediction.txt')
         with open(pred_path, 'w') as f:
-            f.write(f"Prediction Probs-> ['CN', 'MCI', 'AD']: [{all_probs_str}]")
+            f.write(f"Prediction Probs -> ['CN', 'MCI', 'AD']: [{all_probs_str}]")
 
 
         fig.suptitle(f"Heatmap for {img_pkg[-1]}", fontsize=5,  y=0.75)
@@ -74,7 +74,7 @@ if __name__=='__main__':
         attention_coeff = get_class_attention_coefficients(attention_maps)
         heatmap, upscaled_heatmap = get_heatmap(model, forward_features, attention_coeff)
     
-        x = img_pkg[0]
+        x = img_pkg[1]
         print('shape of x: ', x.shape)
         # Process heatmap
         upscaled_heatmap = upscaled_heatmap * x[0]
@@ -83,6 +83,7 @@ if __name__=='__main__':
     
         # Process image slices
         x = np.squeeze(x)
+        mri_gif_maker(x, upscaled_heatmap, os.path.join(args.output_dir, img_pkg[-1]))
         slice_idx = x.shape[0] // 2
         
         # Prepare sagital view
@@ -99,7 +100,7 @@ if __name__=='__main__':
         axial_heatmap = np.rot90(upscaled_heatmap[:, :, slice_idx])
         
         # Create mask for side-by-side visualization
-        mask = np.concatenate((np.ones((192,192)), np.zeros((192,192))), axis=1)
+        mask = np.concatenate((np.ones((64,64)), np.zeros((64,64))), axis=1)
         
         # Sagital view processing
         sagital = np.concatenate((sagital, sagital), axis=1)
@@ -135,10 +136,7 @@ if __name__=='__main__':
         axes[2].imshow(axial_heatmap, alpha=0.7, cmap='jet')
         axes[2].set_title("Axial", fontsize=5)
         axes[2].axis('off')
-    
-        # Get file name
-        # name = image_path_list[i].split("/")[-1].split(".")[0]
-    
+        
         # Adjust layout and add spacing between subplots
         plt.subplots_adjust(wspace=0.01)
         fig.tight_layout(rect=[0, 0, 1, 0.95])

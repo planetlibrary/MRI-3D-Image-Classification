@@ -23,7 +23,7 @@ def project_intro(name):
     print(ascii_art)
 
 def model_summary(model, input_size, **kwargs):
-    print("Model Details as follows: 👇🏽")
+    print("Model Details as follows: ")
     # Get summary data
     info = summary(model, input_size=input_size, verbose=0, **kwargs)
 
@@ -58,7 +58,7 @@ def model_summary(model, input_size, **kwargs):
 
 
 def training_knobs(cfg_dict):
-    print("Training Knobs:  👇🏽")
+    print("Training Knobs:  ")
     items = list(cfg_dict.items())
     mid = len(items) // 2 + len(items) % 2  # Left half gets extra if odd
 
@@ -122,9 +122,9 @@ def compute_metrics(y_true, y_pred):
     """
     return {
         "accuracy": accuracy_score(y_true, y_pred),
-        "precision": precision_score(y_true, y_pred, average='macro', zero_division=0),
-        "recall": recall_score(y_true, y_pred, average='macro', zero_division=0),
-        "f1_score": f1_score(y_true, y_pred, average='macro', zero_division=0),
+        "precision": precision_score(y_true, y_pred, average='weighted', zero_division=0),
+        "recall": recall_score(y_true, y_pred, average='weighted', zero_division=0),
+        "f1_score": f1_score(y_true, y_pred, average='weighted', zero_division=0),
     }
 
 
@@ -279,13 +279,74 @@ def get_time_diff(start: float, end: float) -> str:
 
 
 def print_dist(*data):
-    print('Class Distribution as follows👇🏽: ')
+    print('Class Distribution as follows: ')
     table = PrettyTable()
     table.field_names = ["Class", "Train", "Test", "Validation"]
     for cls in ['CN', 'MCI', 'AD']:
         table.add_row([cls, data[0][cls], data[1][cls], data[2][cls]])
 
     print(table)
+
+
+def plot_single_metrics(config):
+    # Load metrics from JSON
+    metric_path = os.path.join(config.metrics_dir, 'metrics.json')
+    with open(metric_path, 'r') as f:
+        metrics = json.load(f)
+
+    figure_dir = config.figures_dir
+    os.makedirs(figure_dir, exist_ok=True)
+
+    # Extract the metrics
+    train_loss = metrics["train_loss"]
+    test_loss = metrics["test_loss"]
+    train_accuracy = metrics["train_accuracy"]
+    test_accuracy = metrics["test_accuracy"]
+    train_precision = metrics["train_precision"]
+    test_precision = metrics["test_precision"]
+    train_recall = metrics["train_recall"]
+    test_recall = metrics["test_recall"]
+    train_f1 = metrics["train_f1_score"]
+    test_f1 = metrics["test_f1_score"]
+
+    # Plotting
+    fig, axs = plt.subplots(5, 1, figsize=(12, 24), sharex=True)
+
+    # Loss plot
+    axs[0].plot(train_loss, label='Train Loss')
+    axs[0].plot(test_loss, label='Test Loss')
+    axs[0].set_title('(a). Loss over Epochs')
+    axs[0].legend()
+
+    # Accuracy plot
+    axs[1].plot(train_accuracy, label='Train Accuracy')
+    axs[1].plot(test_accuracy, label='Test Accuracy')
+    axs[1].set_title('(b). Accuracy over Epochs')
+    axs[1].legend()
+
+    # Recall plot
+    axs[2].plot(train_recall, label='Train Recall')
+    axs[2].plot(test_recall, label='Test Recall')
+    axs[2].set_title('(c). Recall over Epochs')
+    axs[2].legend()
+
+    # Precision plot
+    axs[3].plot(train_precision, label='Train Precision')
+    axs[3].plot(test_precision, label='Test Precision')
+    axs[3].set_title('(d). Precision over Epochs')
+    axs[3].legend()
+
+    # F1-score plot
+    axs[4].plot(train_f1, label='Train F1-score')
+    axs[4].plot(test_f1, label='Test F1-score')
+    axs[4].set_title('(e). F1-score over Epochs')
+    axs[4].legend()
+
+    plt.xlabel('Epoch')
+    plt.tight_layout()
+    plt.savefig(os.path.join(figure_dir, 'metrics.png'))
+    plt.close()
+
 
 def plot_metrics(config):
     # Load metrics from JSON
@@ -317,8 +378,8 @@ def plot_metrics(config):
     train_melted = train_df.melt(id_vars='epoch', var_name='metric', value_name='scores')
     test_melted = test_df.melt(id_vars='epoch', var_name='metric', value_name='scores')
 
-    figure_dir = config.figures_dir
-    os.makedirs(figure_dir, exist_ok=True)
+    figure_dir_train = os.path.join(config.figures_dir, 'train')
+    os.makedirs(figure_dir_train, exist_ok=True)
 
     # Plot training metrics
     plt.figure(figsize=(12, 6))
@@ -329,9 +390,11 @@ def plot_metrics(config):
     plt.legend(title='Metrics')
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig(os.path.join(figure_dir, 'train_metrics.png'))
+    plt.savefig(os.path.join(figure_dir_train, 'assessments.png'))
     plt.close()
 
+    figure_dir_test = os.path.join(config.figures_dir, 'test')
+    os.makedirs(figure_dir_test, exist_ok=True)
     # Plot testing metrics
     plt.figure(figsize=(12, 6))
     sns.lineplot(data=test_melted, x='epoch', y='scores', hue='metric')
@@ -341,7 +404,7 @@ def plot_metrics(config):
     plt.legend(title='Metrics')
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig(os.path.join(figure_dir, 'test_metrics.png'))
+    plt.savefig(os.path.join(figure_dir_test, 'assessments.png'))
     plt.close()
 
 
@@ -351,7 +414,7 @@ def plot_cm(y_true, y_pred, config, epoch, phase = 'Train'):
     cm = confusion_matrix(y_true, y_pred)
     labels = ['CN','MCI','AD']
 
-    figure_dir = config.figures_dir
+    figure_dir = os.path.join(config.figures_dir,f'{phase.lower()}')
     os.makedirs(figure_dir, exist_ok=True)
     
     plt.figure(figsize=(6,4))
@@ -360,7 +423,7 @@ def plot_cm(y_true, y_pred, config, epoch, phase = 'Train'):
     plt.ylabel("Actual")
     plt.title(f"{phase}-Confusion Matrix")
     plt.tight_layout()
-    plt.savefig(os.path.join(figure_dir,f'{phase.lower()}_confusion_matrix_{epoch}.png'))
+    plt.savefig(os.path.join(figure_dir,f'confusion_matrix_{epoch}.png'))
     plt.close()
 
 def plot_save_config(config):

@@ -15,6 +15,14 @@ from data_loader import get_dataloaders
 from models import get_model
 from utils.utils import *
 from torchinfo import summary
+from utils.model_tracker import ModelChangeTracker
+import torchio as tio
+from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.nn.utils import clip_grad_norm_
+
+
+
+
 
 def train_one_epoch(model, loader, criterion, optimizer, scheduler, device):
     model.train()
@@ -23,17 +31,22 @@ def train_one_epoch(model, loader, criterion, optimizer, scheduler, device):
 
     all_preds, all_labels = [], []
 
-    for inputs, labels in tqdm(loader, desc="Training"):
+    pbar = tqdm(
+            loader,
+            desc="Training",
+            unit="batch",
+        )
+    for inputs, labels in pbar:
         inputs, labels = inputs.to(device, non_blocking=True), labels.to(device,non_blocking=True)
 
-        if torch.isnan(inputs).any():
-            print(inputs.shape)
+        # if torch.isnan(inputs).any():
+        #     print(inputs.shape)
 
         optimizer.zero_grad()
         outputs = model(inputs)
 
-        if torch.isnan(outputs).any():
-           print(outputs.shape, torch.isnan(inputs).any())
+        # if torch.isnan(outputs).any():
+        #    print(outputs.shape, torch.isnan(inputs).any())
 
         # print(outputs.shape, labels.shape)
         # print(outputs, labels)
@@ -41,13 +54,31 @@ def train_one_epoch(model, loader, criterion, optimizer, scheduler, device):
 
         loss = criterion(outputs, labels)
         loss.backward()
+        # efficient gradient norm via clip_grad_norm_ (no clipping if max_norm is huge)
+        total_norm = clip_grad_norm_(model.parameters(), max_norm=1e9, norm_type=2)
+        # # compute total gradient norm
+        # total_norm = 0.0
+        # for p in model.parameters():
+        #     if p.grad is not None:
+        #         total_norm += p.grad.data.norm(2).item() ** 2
+        # total_norm = total_norm ** 0.5
+        # print(f"Gradient L2-norm before step: {total_norm:.6g}")
+
+        
+
         optimizer.step()
 
         running_loss += loss.item() * inputs.size(0)
         preds = outputs.argmax(dim=1)
-        # print(preds, labels)
         correct += (preds == labels).sum().item()
         total += labels.size(0)
+
+        pbar.set_postfix(
+                loss=f"{running_loss/total:.4f}",
+                acc=f"{correct/total:.4f}",
+                grad_norm=f"{total_norm:.4g}",
+            )
+        # print(preds, labels)
 
         all_preds.extend(preds.cpu().tolist())
         all_labels.extend(labels.cpu().tolist())
@@ -68,8 +99,14 @@ def evaluate(model, loader, criterion, device, phase="Validation"):
 
     all_preds, all_labels = [], []
 
+    pbar = tqdm(
+            loader,
+            desc=f"{phase}",
+            unit="batch",
+        )
+
     with torch.no_grad():
-        for inputs, labels in tqdm(loader, desc=phase):
+        for inputs, labels in pbar:
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)
             loss = criterion(outputs, labels)
@@ -81,15 +118,17 @@ def evaluate(model, loader, criterion, device, phase="Validation"):
             correct += (preds == labels).sum().item()
             total += labels.size(0)
 
+            pbar.set_postfix(
+                loss=f"{running_loss/total:.4f}",
+                acc=f"{correct/total:.4f}",
+            )
+
     torch.cuda.empty_cache()
     metrics = compute_metrics(all_labels, all_preds)
 
     avg_loss = running_loss / total
     # accuracy = correct / total
     return avg_loss, metrics, all_labels, all_preds
-
-
-
 
 
     
@@ -108,6 +147,7 @@ if __name__ == '__main__':
 
     cfg = Config(args.model_name)
     project_intro(cfg.project_name)
+    
 
     torch.cuda.empty_cache()
 
@@ -124,22 +164,43 @@ if __name__ == '__main__':
     cfg.test_dir = os.path.join(args.data_dir, 'Test')
 
     
+    tracker = ModelChangeTracker(
+        kl_threshold=1e-4,
+        track_kl=False,
+        track_norms=True,
+        track_grads=True,
+        config = cfg
+    )
+
     training_knobs(cfg.__dict__)
 
     # print(cfg.num_epochs)
 
-    train_loader, val_loader, test_loader = get_dataloaders(
+    transform = tio.Compose([
+        tio.ZNormalization(),
+        tio.RandomFlip(axes=('LR',), flip_probability=0.5),
+        tio.RandomAffine(scales=(0.9, 1.1), degrees=10),
+    ])
+
+    train_loader, val_loader, test_loader, label_dist = get_dataloaders(
         cfg.train_dir, cfg.val_dir, cfg.test_dir,
         batch_size=args.batch_size,
-        num_workers=cfg.num_workers
+        num_workers=cfg.num_workers,
+        transforms=None
     )
 
+    train_dist, _, _ = label_dist
+    # print(train_dist.values())
+    total_labels = sum(i for i in train_dist.values())
+    weight_train = torch.tensor([val for key, val in train_dist.items()], dtype=torch.float32).to(device)
+    # print(weight_train)
+
     # Memory optimization configurations
-    torch.backends.cudnn.benchmark = True  # Enable CuDNN auto-tuner
-    torch.set_float32_matmul_precision('high')  # For Ampere+ GPUs
+    # torch.backends.cudnn.benchmark = True  # Enable CuDNN auto-tuner
+    # torch.set_float32_matmul_precision('high')  # For Ampere+ GPUs
     
-    # Add memory fragmentation prevention
-    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
+    # # Add memory fragmentation prevention
+    # os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
 
     # print(device)
 
@@ -147,11 +208,17 @@ if __name__ == '__main__':
     model_summary(model, [cfg.batch_size, cfg.input_channels, cfg.image_size, cfg.image_size, cfg.image_size])
     # res = summary(model, [cfg.batch_size, cfg.input_channels, cfg.image_size, cfg.image_size, cfg.image_size])
 
-    
+    try:
+        prev_model_path = os.path.join(cfg.checkpoints_dir, 'best_model.pth')
+        model.load_state_dict(torch.load(prev_model_path))
+    except FileNotFoundError as e:
+        print('Pre-trained model path is not there, training started from scratch ...')
+
     print(f"Loaded {cfg.model_name} successfully on {next(model.parameters()).device}")
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(weight_train)
     optimizer = optim.AdamW(model.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay)
-    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 50, 100, 120, 150, 180, 200, 230, 250, 270, 280], gamma=0.72)
+    # scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 50, 100, 120, 150, 180, 200, 230, 250, 270, 280], gamma=0.72)
+    scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=2e-7)
 
     best_test_loss = np.inf
     best_test_acc = 0
@@ -182,6 +249,9 @@ if __name__ == '__main__':
         print(f'\nEpoch {epoch}/{args.epochs}')
         train_loss, train_metrics, train_labels, train_preds = train_one_epoch(model, train_loader, criterion, optimizer, scheduler, device)
         test_loss, test_metrics, test_labels, test_preds = evaluate(model, test_loader, criterion, device, phase="Test")
+
+        tracker.update(model, epoch)
+
         
         # Optionally log the learning rate
         current_lr = optimizer.param_groups[0]['lr']
@@ -229,7 +299,7 @@ if __name__ == '__main__':
 
 
         # Save best checkpoint
-        if test_loss < best_test_loss and test_metrics['accuracy'] > best_test_acc:
+        if test_loss < best_test_loss or test_metrics['accuracy'] > best_test_acc:
             best_test_loss = test_loss
             best_test_acc = test_metrics['accuracy']
             save_path = os.path.join(cfg.checkpoints_dir, 'best_model.pth')
@@ -255,8 +325,12 @@ if __name__ == '__main__':
         json.dump(history, f, indent=4)
     
     plot_metrics(cfg)
+    plot_single_metrics(cfg)
     plot_save_config(cfg)
 
     prj_end = time.time()
-    print(f"\nTraining completed. Best Test Loss: {best_test_loss:.4f} | Best Test Accuracy: {best_test_acc:.4f} | Totat time taken: {get_time_diff(prj_start, prj_end)}")
+    print(f"\nTraining completed. Best Test Loss: {best_test_loss:.4f} | Best Test Accuracy: {best_test_acc:.4f} | Total time taken: {get_time_diff(prj_start, prj_end)}")
+    
+    # print(tracker.get_param_norm_log())
+    # print(tracker.get_grad_norm_log())
     writer.close()

@@ -65,7 +65,7 @@ def get_dataloaders(train_path, val_path, test_path, batch_size=8, num_workers=4
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
-    return train_loader, val_loader, test_loader
+    return train_loader, val_loader, test_loader, (train_dist, test_dist, val_dist)
 
 
 if __name__=='__main__':

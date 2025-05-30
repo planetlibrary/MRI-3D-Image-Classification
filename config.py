@@ -22,8 +22,8 @@ class Config:
         # Training Parameters
         self.num_epochs = 50
         self.batch_size = 25
-        self.learning_rate = 1e-3
-        self.weight_decay = 2e-3
+        self.learning_rate = 5e-3
+        self.weight_decay = 2e-4
         self.scheduler_step = 10
         self.scheduler_gamma = 0.1
         self.processed_image_size = 192
@@ -39,10 +39,13 @@ class Config:
             self.input_channels = 1          # Adjust based on your 3D input (e.g., grayscale)
             self.image_size = 64
             # self.patch_size = 16
-            # self.num_heads = 4
+            self.num_heads = 30
             self.num_layers = 3
-            self.hidden_size = 512
-            # self.dropout = 0.1
+            self.hidden_size = 300
+            self.attn_dim_feedforward = self.hidden_size*200 
+            self.attn_dropout = 0.75
+            self.embed_dropout = 0.75
+            self.initializer_range= 0.02
 
         elif self.model_name == "ViT3D_V1":
             self.num_classes = 3              # AD, CN, MCI
@@ -54,7 +57,7 @@ class Config:
             self.num_layers = 6
             self.hidden_size = 27
             self.dropout = 0.1
-            self.initializer_range= 0.02
+            self.initializer_range= 0.8
 
 
         elif self.model_name == "ViTForClassification":

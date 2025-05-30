@@ -28,8 +28,10 @@ class ModelChangeTracker:
         self.kl_divs:       List[Tuple[int, float]]           = []
         self.param_norms:   List[Tuple[int, float, float]]    = []
         self.grad_norms:    List[Tuple[int, float, float, float]] = []
+
+        self.config = config
         
-        os.makedirs(config.logs_dir, exist_ok = True)
+        os.makedirs(self.config.logs_dir, exist_ok = True)
 
     def _flatten_params(self, model: torch.nn.Module) -> torch.Tensor:
         # concatenates all trainable params into one vector, on same device
@@ -58,7 +60,7 @@ class ModelChangeTracker:
 
         if self.prev_params is None:
             print(f"[Tracker] Epoch {epoch}: baseline captured ({curr.numel()} params).")
-            with open(os.path.join(f'{config.logs_dir}', 'terminal.log'), 'a') as f:
+            with open(os.path.join(f'{self.config.logs_dir}', 'terminal.log'), 'a') as f:
                 f.write(f"\n\t[Tracker] Epoch {epoch}: baseline captured ({curr.numel()} params).\n")
         else:
             # ----- 1) KL divergence -----
@@ -68,7 +70,7 @@ class ModelChangeTracker:
                 kl = F.kl_div(curr_logp, prev_probs, reduction='batchmean').item()
                 self.kl_divs.append((epoch, kl))
                 print(f"[Tracker] Epoch {epoch}: KL divergence = {kl:.6g}")
-                with open(os.path.join(f'{config.logs_dir}', 'terminal.log'), 'a') as f:
+                with open(os.path.join(f'{self.config.logs_dir}', 'terminal.log'), 'a') as f:
                     f.write(f"\n\t[Tracker] Epoch {epoch}: KL divergence = {kl:.6g}\n")
 
                 if kl < self.kl_threshold:
@@ -81,7 +83,7 @@ class ModelChangeTracker:
                 l1 = delta.abs().sum().item()
                 self.param_norms.append((epoch, l2, l1))
                 print(f"[Tracker] Epoch {epoch}: ‖Δparams‖₂ = {l2:.4g}, ‖Δparams‖₁ = {l1:.4g}")
-                with open(os.path.join(f'{config.logs_dir}', 'terminal.log'), 'a') as f:
+                with open(os.path.join(f'{self.config.logs_dir}', 'terminal.log'), 'a') as f:
                     f.write(f"\n\t[Tracker] Epoch {epoch}: ‖Δparams‖₂ = {l2:.4g}, ‖Δparams‖₁ = {l1:.4g}\n")
 
             # ----- 3) Gradient norms -----
@@ -92,7 +94,7 @@ class ModelChangeTracker:
                 g_max = grads.abs().max().item()
                 self.grad_norms.append((epoch, g_l2, g_l1, g_max))
                 print(f"[Tracker] Epoch {epoch}: ‖grads‖₂ = {g_l2:.4g}, ‖grads‖₁ = {g_l1:.4g}, max|grad| = {g_max:.4g}")
-                with open(os.path.join(f'{config.logs_dir}', 'terminal.log'), 'a') as f:
+                with open(os.path.join(f'{self.config.logs_dir}', 'terminal.log'), 'a') as f:
                     f.write(f"\n\t[Tracker] Epoch {epoch}: ‖grads‖₂ = {g_l2:.4g}, ‖grads‖₁ = {g_l1:.4g}, max|grad| = {g_max:.4g}\n")
 
         # swap in the new baseline
